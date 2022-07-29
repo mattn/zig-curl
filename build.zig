@@ -8,7 +8,7 @@ pub fn build(b: *std.build.Builder) void {
 
     const lib = b.addStaticLibrary("zig-curl", "src/main.zig");
     lib.setBuildMode(mode);
-    var libs = if (builtin.os.tag == .windows) [_][]const u8{ "c", "curl", "crypto", "crypt32", "ws2_32", "wldap32", "ssl", "psl", "iconv", "idn2", "unistring", "z", "zstd", "nghttp2", "ssh2", "brotlienc", "brotlidec", "brotlicommon" } else [_][]const u8{"curl"};
+    var libs = if (builtin.os.tag == .windows) [_][]const u8{ "c", "curl", "crypto", "crypt32", "ws2_32", "wldap32", "ssl", "psl", "iconv", "idn2", "unistring", "z", "zstd", "nghttp2", "ssh2", "brotlienc", "brotlidec", "brotlicommon" } else [_][]const u8{ "c", "curl" };
     for (libs) |i| {
         lib.linkSystemLibrary(i);
     }

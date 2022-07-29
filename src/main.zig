@@ -2,6 +2,7 @@ const std = @import("std");
 const c = @cImport({
     @cDefine("WIN32_LEAN_AND_MEAN", "1");
     @cInclude("curl/curl.h");
+    @cInclude("string.h");
 });
 const testing = std.testing;
 
