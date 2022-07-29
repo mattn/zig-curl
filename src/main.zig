@@ -44,6 +44,12 @@ pub fn request(method: []const u8, url: []const u8, ctx: context) !u32 {
     } else if (!std.mem.eql(u8, method, "GET")) {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CUSTOMREQUEST), @ptrCast([*]const u8, method));
     }
+    if (ctx.sslVerify) {
+        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_SSL_VERIFYPEER), @as(c_long, 1));
+    }
+    if (ctx.timeout >= 0) {
+        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_TIMEOUT), @as(c_long, ctx.timeout));
+    }
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_URL), @ptrCast([*]const u8, url));
     if (ctx.cainfo != null) {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CAINFO), ctx.cainfo.?);
