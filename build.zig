@@ -12,6 +12,9 @@ pub fn build(b: *std.build.Builder) void {
     for (libs) |i| {
         lib.linkSystemLibrary(i);
     }
+    if (builtin.os.tag == .linux) {
+        lib.linkSystemLibraryNeeded("libcurl");
+    }
     lib.install();
 
     const main_tests = b.addTest("src/main.zig");
