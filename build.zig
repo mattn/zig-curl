@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 pub fn build(b: *std.build.Builder) void {
@@ -7,23 +8,27 @@ pub fn build(b: *std.build.Builder) void {
 
     const lib = b.addStaticLibrary("zig-curl", "src/main.zig");
     lib.setBuildMode(mode);
-    var libs = [_][]const u8{ "c", "curl", "crypto", "crypt32", "ws2_32", "wldap32", "ssl", "psl", "iconv", "idn2", "unistring", "z", "zstd", "nghttp2", "ssh2", "brotlienc", "brotlidec", "brotlicommon" };
+    var libs = if (builtin.os.tag == .windows) [_][]const u8{ "c", "curl", "crypto", "crypt32", "ws2_32", "wldap32", "ssl", "psl", "iconv", "idn2", "unistring", "z", "zstd", "nghttp2", "ssh2", "brotlienc", "brotlidec", "brotlicommon" } else [_][]const u8{"curl"};
     for (libs) |i| {
         lib.linkSystemLibrary(i);
     }
     lib.install();
 
     const main_tests = b.addTest("src/main.zig");
-    main_tests.include_dirs.append(.{ .raw_path = "c:/msys64/mingw64/include" }) catch unreachable;
-    main_tests.lib_paths.append("c:/msys64/mingw64/lib") catch unreachable;
+    if (builtin.os.tag == .windows) {
+        main_tests.include_dirs.append(.{ .raw_path = "c:/msys64/mingw64/include" }) catch unreachable;
+        main_tests.lib_paths.append("c:/msys64/mingw64/lib") catch unreachable;
+    }
     for (libs) |i| {
         main_tests.linkSystemLibrary(i);
     }
     main_tests.setBuildMode(mode);
 
     const exe = b.addExecutable("curl-basic", "example/basic/main.zig");
-    exe.include_dirs.append(.{ .raw_path = "c:/msys64/mingw64/include" }) catch unreachable;
-    exe.lib_paths.append("c:/msys64/mingw64/lib") catch unreachable;
+    if (builtin.os.tag == .windows) {
+        exe.include_dirs.append(.{ .raw_path = "c:/msys64/mingw64/include" }) catch unreachable;
+        exe.lib_paths.append("c:/msys64/mingw64/lib") catch unreachable;
+    }
     exe.setBuildMode(mode);
     var curlPkg = std.build.Pkg{
         .name = "curl",
