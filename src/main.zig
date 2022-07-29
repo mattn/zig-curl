@@ -191,9 +191,7 @@ test "basic test" {
     }.f;
 
     var cainfo = try std.process.getEnvVarOwned(allocator, "CURL_CA_BUNDLE");
-    defer {
-        allocator.free(cainfo);
-    }
+    defer allocator.free(cainfo);
 
     var req = request{
         .allocator = allocator,
@@ -211,9 +209,7 @@ test "basic test" {
         .cainfo = cainfo,
         .response = &response.init(allocator),
     };
-    defer {
-        req.response.?.deinit();
-    }
+    defer req.response.?.deinit();
     res = try get("http://google.com/", req);
     try std.testing.expectEqual(@as(u32, 0), res);
 }
