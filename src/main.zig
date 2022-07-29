@@ -18,6 +18,24 @@ pub const response = struct {
     allocator: std.mem.Allocator,
     status: c_long,
     headers: headers,
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{
+            .allocator = allocator,
+            .status = 0,
+            .headers = std.ArrayList(header).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        for (self.headers.items) |h| {
+            self.allocator.free(h.name);
+            self.allocator.free(h.value);
+        }
+        self.headers.deinit();
+    }
 };
 
 pub const request = struct {
@@ -191,18 +209,10 @@ test "basic test" {
         .cb = f,
         .sslVerify = true,
         .cainfo = cainfo,
-        .response = &response{
-            .status = 0,
-            .allocator = allocator,
-            .headers = std.ArrayList(header).init(allocator),
-        },
+        .response = &response.init(allocator),
     };
     defer {
-        for (req.response.?.headers.items) |h| {
-            allocator.free(h.name);
-            allocator.free(h.value);
-        }
-        req.response.?.headers.deinit();
+        req.response.?.deinit();
     }
     res = try get("http://google.com/", req);
     try std.testing.expectEqual(@as(u32, 0), res);
