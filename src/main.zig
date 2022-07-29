@@ -15,6 +15,7 @@ pub const context = struct {
     body: ?*[]const u8 = null,
     timeout: i32 = -1,
     sslVerify: bool = true,
+    cainfo: ?*[]const u8 = null,
 };
 
 pub const header = struct {
@@ -44,7 +45,9 @@ pub fn request(method: []const u8, url: []const u8, ctx: context) !u32 {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CUSTOMREQUEST), @ptrCast([*]const u8, method));
     }
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_URL), @ptrCast([*]const u8, url));
-    _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CAINFO), "c:/msys64/usr/ssl/certs/ca-bundle.crt");
+    if (ctx.cainfo != null) {
+        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CAINFO), ctx.cainfo.?);
+    }
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_FOLLOWLOCATION), @as(c_long, 1));
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_WRITEFUNCTION), writeFn);
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_WRITEDATA), ctx);
