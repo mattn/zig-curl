@@ -9,7 +9,6 @@ const testing = std.testing;
 const func = fn (response, []const u8) anyerror!usize;
 
 pub const context = struct {
-    allocator: std.mem.Allocator,
     resp: response,
     curl: ?*c.CURL,
     cb: func,
@@ -28,7 +27,8 @@ pub const request = struct {
     body: ?*[]const u8 = null,
     timeout: i32 = -1,
     sslVerify: bool = true,
-    cainfo: ?*[]const u8 = null,
+    cainfo: ?[]const u8 = null,
+    response: ?*response = null,
 };
 
 pub const header = struct {
@@ -47,9 +47,9 @@ fn headerFn(ptr: [*]const u8, size: usize, nmemb: usize, ctx: *context) usize {
     while (i < data.len) : (i += 1) {
         if (data[i] == ':') {
             var h: header = undefined;
-            h.name = ctx.allocator.dupe(u8, data[0..i]) catch unreachable;
+            h.name = ctx.resp.allocator.dupe(u8, data[0..i]) catch unreachable;
             while (i < data.len and std.ascii.isSpace(data[i + 1])) : (i += 1) {}
-            h.value = ctx.allocator.dupe(u8, data[i..]) catch unreachable;
+            h.value = ctx.resp.allocator.dupe(u8, data[i..]) catch unreachable;
             ctx.resp.headers.append(h) catch unreachable;
             break;
         }
@@ -87,7 +87,6 @@ pub fn send(method: []const u8, url: []const u8, req: request) !u32 {
     }
 
     var ctx: context = .{
-        .allocator = req.allocator,
         .resp = .{
             .allocator = req.allocator,
             .status = 0,
@@ -97,11 +96,15 @@ pub fn send(method: []const u8, url: []const u8, req: request) !u32 {
         .cb = req.cb,
     };
     defer {
-        for (ctx.resp.headers.items) |h| {
-            ctx.allocator.free(h.name);
-            ctx.allocator.free(h.value);
+        if (req.response == null) {
+            for (ctx.resp.headers.items) |h| {
+                req.allocator.free(h.name);
+                req.allocator.free(h.value);
+            }
+            ctx.resp.headers.deinit();
+        } else {
+            req.response.?.* = ctx.resp;
         }
-        ctx.resp.headers.deinit();
     }
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_URL), @ptrCast([*]const u8, url));
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_FOLLOWLOCATION), @as(c_long, 1));
@@ -113,12 +116,13 @@ pub fn send(method: []const u8, url: []const u8, req: request) !u32 {
     if (req.headers != null) {
         var headerlist: *c.curl_slist = undefined;
         for (req.headers.?.items) |he| {
-            var bytes = std.ArrayList(u8).init(ctx.allocator);
+            var bytes = std.ArrayList(u8).init(req.allocator);
             defer bytes.deinit();
             try bytes.writer().print("{s}: {s}", .{ he.name, he.value });
             headerlist = c.curl_slist_append(headerlist, @ptrCast([*]const u8, bytes.items));
         }
         _ = c.curl_easy_setopt(curl, c.CURLOPT_HTTPHEADER, headerlist);
+        defer c.curl_slist_free_all(headerlist);
     }
     if (req.body != null) {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_POST), @as(c_long, 1));
@@ -167,6 +171,39 @@ test "basic test" {
             return data.len;
         }
     }.f;
-    var res = try get("https://google.com/", .{ .allocator = allocator, .cb = f });
+
+    var cainfo = try std.process.getEnvVarOwned(allocator, "CURL_CA_BUNDLE");
+    defer {
+        allocator.free(cainfo);
+    }
+
+    var req = request{
+        .allocator = allocator,
+        .cb = f,
+        .sslVerify = true,
+        .cainfo = cainfo,
+    };
+    var res = try get("http://google.com/", req);
+    try std.testing.expectEqual(@as(u32, 0), res);
+
+    req = request{
+        .allocator = allocator,
+        .cb = f,
+        .sslVerify = true,
+        .cainfo = cainfo,
+        .response = &response{
+            .status = 0,
+            .allocator = allocator,
+            .headers = std.ArrayList(header).init(allocator),
+        },
+    };
+    defer {
+        for (req.response.?.headers.items) |h| {
+            allocator.free(h.name);
+            allocator.free(h.value);
+        }
+        req.response.?.headers.deinit();
+    }
+    res = try get("http://google.com/", req);
     try std.testing.expectEqual(@as(u32, 0), res);
 }
