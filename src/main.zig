@@ -6,7 +6,7 @@ const c = @cImport({
 });
 const testing = std.testing;
 
-const func = fn (response, []const u8) anyerror!usize;
+const func = fn ([]const u8) anyerror!usize;
 
 pub const context = struct {
     resp: response,
@@ -59,7 +59,7 @@ fn headerFn(ptr: [*]const u8, size: usize, nmemb: usize, ctx: *context) usize {
 
 fn writeFn(ptr: [*]const u8, size: usize, nmemb: usize, ctx: *context) usize {
     const data = ptr[0 .. size * nmemb];
-    return ctx.cb(ctx.resp, data) catch 0;
+    return ctx.cb(data) catch 0;
 }
 
 pub fn send(method: []const u8, url: []const u8, req: request) !u32 {
@@ -166,7 +166,7 @@ pub fn strerrorAlloc(allocator: std.mem.Allocator, res: u32) ![]const u8 {
 test "basic test" {
     var allocator = std.testing.allocator;
     var f = struct {
-        fn f(_: response, data: []const u8) anyerror!usize {
+        fn f(data: []const u8) anyerror!usize {
             try std.io.getStdOut().writeAll(data);
             return data.len;
         }
