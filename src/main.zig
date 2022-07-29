@@ -6,9 +6,22 @@ const c = @cImport({
 });
 const testing = std.testing;
 
-const func = fn (context, []const u8) anyerror!usize;
+const func = fn (response, []const u8) anyerror!usize;
 
 pub const context = struct {
+    allocator: std.mem.Allocator,
+    resp: response,
+    curl: ?*c.CURL,
+    cb: func,
+};
+
+pub const response = struct {
+    allocator: std.mem.Allocator,
+    status: c_long,
+    headers: headers,
+};
+
+pub const request = struct {
     allocator: std.mem.Allocator,
     cb: func,
     headers: ?*headers = null,
@@ -25,13 +38,31 @@ pub const header = struct {
 
 pub const headers = std.ArrayList(header);
 
-fn writeFn(ptr: [*]const u8, size: usize, nmemb: usize, userp: *context) usize {
-    const resp = ptr[0 .. size * nmemb];
-    const ctx = userp.*;
-    return ctx.cb(ctx, resp) catch 0;
+fn headerFn(ptr: [*]const u8, size: usize, nmemb: usize, ctx: *context) usize {
+    const data = ptr[0 .. size * nmemb];
+    if (ctx.resp.status == 0) {
+        _ = c.curl_easy_getinfo(ctx.curl, c.CURLINFO_RESPONSE_CODE, &ctx.resp.status);
+    }
+    var i: usize = 0;
+    while (i < data.len) : (i += 1) {
+        if (data[i] == ':') {
+            var h: header = undefined;
+            h.name = ctx.allocator.dupe(u8, data[0..i]) catch unreachable;
+            while (i < data.len and std.ascii.isSpace(data[i + 1])) : (i += 1) {}
+            h.value = ctx.allocator.dupe(u8, data[i..]) catch unreachable;
+            ctx.resp.headers.append(h) catch unreachable;
+            break;
+        }
+    }
+    return size * nmemb;
 }
 
-pub fn request(method: []const u8, url: []const u8, ctx: context) !u32 {
+fn writeFn(ptr: [*]const u8, size: usize, nmemb: usize, ctx: *context) usize {
+    const data = ptr[0 .. size * nmemb];
+    return ctx.cb(ctx.resp, data) catch 0;
+}
+
+pub fn send(method: []const u8, url: []const u8, req: request) !u32 {
     var curl: ?*c.CURL = undefined;
     var res: c.CURLcode = undefined;
     curl = c.curl_easy_init();
@@ -44,22 +75,44 @@ pub fn request(method: []const u8, url: []const u8, ctx: context) !u32 {
     } else if (!std.mem.eql(u8, method, "GET")) {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CUSTOMREQUEST), @ptrCast([*]const u8, method));
     }
-    if (ctx.sslVerify) {
+
+    if (req.sslVerify) {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_SSL_VERIFYPEER), @as(c_long, 1));
     }
-    if (ctx.timeout >= 0) {
-        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_TIMEOUT), @as(c_long, ctx.timeout));
+    if (req.timeout >= 0) {
+        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_TIMEOUT), @as(c_long, req.timeout));
+    }
+    if (req.cainfo != null) {
+        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CAINFO), req.cainfo.?);
+    }
+
+    var ctx: context = .{
+        .allocator = req.allocator,
+        .resp = .{
+            .allocator = req.allocator,
+            .status = 0,
+            .headers = headers.init(req.allocator),
+        },
+        .curl = curl,
+        .cb = req.cb,
+    };
+    defer {
+        for (ctx.resp.headers.items) |h| {
+            ctx.allocator.free(h.name);
+            ctx.allocator.free(h.value);
+        }
+        ctx.resp.headers.deinit();
     }
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_URL), @ptrCast([*]const u8, url));
-    if (ctx.cainfo != null) {
-        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CAINFO), ctx.cainfo.?);
-    }
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_FOLLOWLOCATION), @as(c_long, 1));
+    _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_HEADERFUNCTION), headerFn);
+    _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_HEADERDATA), &ctx);
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_WRITEFUNCTION), writeFn);
-    _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_WRITEDATA), ctx);
-    if (ctx.headers != null) {
+    _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_WRITEDATA), &ctx);
+
+    if (req.headers != null) {
         var headerlist: *c.curl_slist = undefined;
-        for (ctx.headers.?.items) |he| {
+        for (req.headers.?.items) |he| {
             var bytes = std.ArrayList(u8).init(ctx.allocator);
             defer bytes.deinit();
             try bytes.writer().print("{s}: {s}", .{ he.name, he.value });
@@ -67,32 +120,32 @@ pub fn request(method: []const u8, url: []const u8, ctx: context) !u32 {
         }
         _ = c.curl_easy_setopt(curl, c.CURLOPT_HTTPHEADER, headerlist);
     }
-    if (ctx.body != null) {
+    if (req.body != null) {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_POST), @as(c_long, 1));
-        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_POSTFIELDS), @ptrCast([*]const u8, ctx.body));
+        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_POSTFIELDS), @ptrCast([*]const u8, req.body));
     }
     res = c.curl_easy_perform(curl);
     return @as(u32, res);
 }
 
-pub fn put(url: []const u8, ctx: context) !u32 {
-    return request("PUT", url, ctx);
+pub fn put(url: []const u8, req: request) !u32 {
+    return send("PUT", url, req);
 }
 
-pub fn patch(url: []const u8, ctx: context) !u32 {
-    return request("PATCH", url, ctx);
+pub fn patch(url: []const u8, req: request) !u32 {
+    return send("PATCH", url, req);
 }
 
-pub fn post(url: []const u8, ctx: context) !u32 {
-    return request("POST", url, ctx);
+pub fn post(url: []const u8, req: request) !u32 {
+    return send("POST", url, req);
 }
 
-pub fn delete(url: []const u8, ctx: context) !u32 {
-    return request("DELETE", url, ctx);
+pub fn delete(url: []const u8, req: request) !u32 {
+    return send("DELETE", url, req);
 }
 
-pub fn get(url: []const u8, ctx: context) !u32 {
-    return request("GET", url, ctx);
+pub fn get(url: []const u8, req: request) !u32 {
+    return send("GET", url, req);
 }
 
 pub fn strerrorAlloc(allocator: std.mem.Allocator, res: u32) ![]const u8 {
@@ -107,11 +160,11 @@ pub fn strerrorAlloc(allocator: std.mem.Allocator, res: u32) ![]const u8 {
 }
 
 test "basic test" {
-    var allocator = std.heap.page_allocator;
+    var allocator = std.testing.allocator;
     var f = struct {
-        fn f(_: context, resp: []const u8) anyerror!usize {
-            try std.io.getStdOut().writeAll(resp);
-            return resp.len;
+        fn f(_: response, data: []const u8) anyerror!usize {
+            try std.io.getStdOut().writeAll(data);
+            return data.len;
         }
     }.f;
     var res = try get("https://google.com/", .{ .allocator = allocator, .cb = f });
