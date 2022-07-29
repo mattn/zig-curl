@@ -11,7 +11,7 @@ const func = fn ([]const u8) anyerror!usize;
 pub const context = struct {
     resp: response,
     curl: ?*c.CURL,
-    cb: func,
+    cb: ?func,
 };
 
 pub const response = struct {
@@ -40,7 +40,7 @@ pub const response = struct {
 
 pub const request = struct {
     allocator: std.mem.Allocator,
-    cb: func,
+    cb: ?func = null,
     headers: ?*headers = null,
     body: ?*[]const u8 = null,
     timeout: i32 = -1,
@@ -77,7 +77,7 @@ fn headerFn(ptr: [*]const u8, size: usize, nmemb: usize, ctx: *context) usize {
 
 fn writeFn(ptr: [*]const u8, size: usize, nmemb: usize, ctx: *context) usize {
     const data = ptr[0 .. size * nmemb];
-    return ctx.cb(data) catch 0;
+    return ctx.cb.?(data) catch 0;
 }
 
 pub fn send(method: []const u8, url: []const u8, req: request) !u32 {
@@ -128,8 +128,10 @@ pub fn send(method: []const u8, url: []const u8, req: request) !u32 {
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_FOLLOWLOCATION), @as(c_long, 1));
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_HEADERFUNCTION), headerFn);
     _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_HEADERDATA), &ctx);
-    _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_WRITEFUNCTION), writeFn);
-    _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_WRITEDATA), &ctx);
+    if (req.cb != null) {
+        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_WRITEFUNCTION), writeFn);
+        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_WRITEDATA), &ctx);
+    }
 
     if (req.headers != null) {
         var headerlist: *c.curl_slist = undefined;
@@ -195,11 +197,19 @@ test "basic test" {
 
     var req = request{
         .allocator = allocator,
-        .cb = f,
         .sslVerify = true,
         .cainfo = cainfo,
     };
     var res = try get("http://google.com/", req);
+    try std.testing.expectEqual(@as(u32, 0), res);
+
+    req = request{
+        .allocator = allocator,
+        .cb = f,
+        .sslVerify = true,
+        .cainfo = cainfo,
+    };
+    res = try get("http://google.com/", req);
     try std.testing.expectEqual(@as(u32, 0), res);
 
     req = request{
