@@ -7,9 +7,9 @@ cURL binding for Zig
 ```zig
 var allocator = std.heap.page_allocator;
 var f = struct {
-    fn f(_: curl.context, resp: []const u8) anyerror!usize {
-        try std.io.getStdOut().writeAll(resp);
-        return resp.len;
+    fn f(data: []const u8) anyerror!usize {
+        try std.io.getStdOut().writeAll(data);
+        return data.len;
     }
 }.f;
 var res = try curl.get("https://google.com/", .{ .allocator = allocator, .cb = f });
