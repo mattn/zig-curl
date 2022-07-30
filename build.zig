@@ -24,6 +24,12 @@ pub fn build(b: *std.build.Builder) void {
 
     const main_tests = b.addTest("src/main.zig");
     main_tests.setBuildMode(mode);
+    if (builtin.os.tag == .windows) {
+        main_tests.include_dirs.append(.{ .raw_path = "c:/msys64/mingw64/include" }) catch unreachable;
+        main_tests.lib_paths.append("c:/msys64/mingw64/lib") catch unreachable;
+    }
+    main_tests.addPackage(curlPkg);
+    main_tests.linkLibrary(lib);
 
     const exe = b.addExecutable("curl-basic", "example/basic/main.zig");
     if (builtin.os.tag == .windows) {
