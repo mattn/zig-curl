@@ -4,7 +4,7 @@ const curl = @import("curl");
 pub fn main() anyerror!void {
     var allocator = std.heap.page_allocator;
 
-    var cainfo = try std.process.getEnvVarOwned(allocator, "CURL_CA_BUNDLE");
+    var cainfo = std.process.getEnvVarOwned(allocator, "CURL_CA_BUNDLE") catch try allocator.dupe(u8, "");
     defer allocator.free(cainfo);
 
     var f = struct {

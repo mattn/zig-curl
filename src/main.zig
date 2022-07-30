@@ -97,11 +97,14 @@ pub fn send(method: []const u8, url: []const u8, req: request) !u32 {
     if (req.sslVerify) {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_SSL_VERIFYPEER), @as(c_long, 1));
     }
+    _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_SSL_VERIFYPEER), @as(c_long, 1));
     if (req.timeout >= 0) {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_TIMEOUT), @as(c_long, req.timeout));
     }
-    if (req.cainfo != null) {
+    if (req.cainfo != null and req.cainfo.?.len > 0) {
         _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CAINFO), req.cainfo.?);
+    } else {
+        _ = c.curl_easy_setopt(curl, @bitCast(c_uint, c.CURLOPT_CAINFO), @as(c_long, 0));
     }
 
     var ctx: context = .{
